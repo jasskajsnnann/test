@@ -131,9 +131,24 @@ def app():
     stopwords = load_stopwords(stopwords_file)
 
     # 处理掩模图像
-    mask_image = None
-    if mask_file:
-        mask_image = np.array(Image.open(mask_file).convert("RGBA"))
+mask_image = None
+if mask_file:
+    try:
+        # 确保上传的是 PNG 格式的图片
+        image = Image.open(mask_file)
+        if image.format != 'PNG':
+            st.error("请上传 PNG 格式的图片文件作为掩模图像。")
+        else:
+            mask_image = np.array(image.convert("RGBA"))  # 转换为RGBA格式
+    except Exception as e:
+        st.error(f"图像处理失败: {e}")
+
+# 确保掩模图像存在时才传递
+if mask_image:
+    chart = generate_pyecharts_wordcloud(filtered_word_counts, mask_image)
+else:
+    chart = generate_pyecharts_wordcloud(filtered_word_counts)
+
 
     if url_input:
         text = get_text_from_url(url_input)
