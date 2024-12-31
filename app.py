@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import streamlit as st
 import jieba
 import requests
@@ -5,11 +6,11 @@ from bs4 import BeautifulSoup
 from collections import Counter
 import re
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 from pyecharts.charts import WordCloud, Bar, Line, Pie, Scatter, Funnel
 from pyecharts import options as opts
 import streamlit.components.v1 as components
+from PIL import Image
+import numpy as np
 
 # 1. 获取网页内容
 def get_text_from_url(url):
@@ -46,10 +47,16 @@ def calculate_word_frequency(text, stopwords):
     return word_count
 
 # 6. 生成 PyeCharts 词云
-def generate_pyecharts_wordcloud(word_counts):
+def generate_pyecharts_wordcloud(word_counts, mask_image=None):
     filtered_words = [(word, count) for word, count in word_counts.items() if len(word) > 1]
     wordcloud = WordCloud()
-    wordcloud.add("", filtered_words, word_size_range=[20, 100])
+    
+    # 如果提供了自定义的掩模图像
+    if mask_image:
+        wordcloud.add("", filtered_words, word_size_range=[20, 100], shape=mask_image)
+    else:
+        wordcloud.add("", filtered_words, word_size_range=[20, 100])
+        
     wordcloud.set_global_opts(title_opts=opts.TitleOpts(title="词云"))
     return wordcloud.render_embed()
 
@@ -108,67 +115,60 @@ def plot_waterfall_chart(word_freq_df):
     )
     return funnel.render_embed()
 
-# 13. 创建 Seaborn 热力图
-def plot_heatmap(word_freq_df):
-    plt.figure(figsize=(10, 8))
-    heatmap_data = word_freq_df.pivot("词语", "词频", "词频")
-    sns.heatmap(heatmap_data, annot=True, cmap="YlGnBu")
-    st.pyplot()
-
-# 14. 创建 Seaborn 箱线图
-def plot_boxplot(word_freq_df):
-    plt.figure(figsize=(10, 6))
-    sns.boxplot(x=word_freq_df['词频'])
-    plt.title("词频箱线图")
-    st.pyplot()
-
 # 主函数
 def app():
     st.sidebar.title("图表选择与参数设置")
     url_input = st.text_input("请输入一个网址获取文本内容：")
     chart_type = st.sidebar.selectbox(
         '选择图表类型',
-        ['词云', '条形图', '折线图', '饼图', '散点图', '面积图', '瀑布图', '热力图', '箱线图']
+        ['词云', '条形图', '折线图', '饼图', '散点图', '面积图', '瀑布图']
     )
-    min_freq = st.sidebar.slider("最小词频", 1, 20, 5)
+    min_freq = st.sidebar.slider("设置最小词频", 30, 200, 10)
     
+    # 文件上传部分
+    mask_file = st.sidebar.file_uploader("上传词云掩模图片 (PNG 格式)", type=["png"])
+    stopwords_file = "stopwords.txt"  # 停用词文件路径
+    stopwords = load_stopwords(stopwords_file)
+
+    # 处理掩模图像
+    mask_image = None
+    if mask_file:
+        mask_image = np.array(Image.open(mask_file).convert("RGBA"))
+
     if url_input:
         text = get_text_from_url(url_input)
         if text:
-            stopwords = load_stopwords("stopwords.txt")
-            cleaned_text = clean_html_tags(text)
-            cleaned_text = remove_non_chinese(cleaned_text)
-            word_count = calculate_word_frequency(cleaned_text, stopwords)
-            word_freq_df = pd.DataFrame(word_count.items(), columns=['词语', '词频'])
-            word_freq_df = word_freq_df[word_freq_df['词频'] >= min_freq]
-            word_freq_df = word_freq_df.sort_values(by='词频', ascending=False)
-            
-            if chart_type == "词云":
-                chart = generate_pyecharts_wordcloud(word_count)
-                components.html(chart)
-            elif chart_type == "条形图":
-                chart = plot_bar_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "折线图":
-                chart = plot_line_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "饼图":
-                chart = plot_pie_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "散点图":
-                chart = plot_scatter_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "面积图":
-                chart = plot_area_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "瀑布图":
-                chart = plot_waterfall_chart(word_freq_df)
-                components.html(chart)
-            elif chart_type == "热力图":
-                plot_heatmap(word_freq_df)
-            elif chart_type == "箱线图":
-                plot_boxplot(word_freq_df)
+            clean_text = clean_html_tags(text)
+            clean_text = remove_non_chinese(clean_text)
+            word_counts = calculate_word_frequency(clean_text, stopwords)
+            filtered_word_counts = {word: count for word, count in word_counts.items() if count >= min_freq}
+            word_freq_df = pd.DataFrame(list(filtered_word_counts.items()), columns=["词语", "词频"]).sort_values(by="词频", ascending=False).reset_index(drop=True)
 
-# 运行 Streamlit 应用
+            # 显示词频排名前20的词汇
+            st.subheader("词频排名前20的词汇：")
+            st.dataframe(word_freq_df.head(20))
+
+            # 根据用户选择的图表类型生成图表
+            if chart_type == '词云':
+                chart = generate_pyecharts_wordcloud(filtered_word_counts, mask_image)
+            elif chart_type == '条形图':
+                chart = plot_bar_chart(word_freq_df)
+            elif chart_type == '折线图':
+                chart = plot_line_chart(word_freq_df)
+            elif chart_type == '饼图':
+                chart = plot_pie_chart(word_freq_df)
+            elif chart_type == '散点图':
+                chart = plot_scatter_chart(word_freq_df)
+            elif chart_type == '面积图':
+                chart = plot_area_chart(word_freq_df)
+            elif chart_type == '瀑布图':
+                chart = plot_waterfall_chart(word_freq_df)
+
+            # 显示选定的图表
+            st.subheader(f"{chart_type}:")
+            components.html(chart, height=600)
+        else:
+            st.error("未能从该网址获取到有效的文本内容，请检查网址是否有效。")
+
 if __name__ == "__main__":
     app()
